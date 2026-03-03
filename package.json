@@ -1,0 +1,9 @@
+{
+  "name": "grid-scene",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve .",
+    "start": "npx serve ."
+  }
+}

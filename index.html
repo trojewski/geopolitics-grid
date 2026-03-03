@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Grid Scene</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; }
+    canvas { display: block; }
+
+    /* iOS-style control panel - dark mode */
+    .control-panel {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 100;
+      width: 280px;
+      background: rgba(28, 28, 30, 0.92);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-radius: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      font-size: 17px;
+      color: #f5f5f7;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+      color-scheme: dark;
+    }
+
+    .control-panel.collapsed {
+      padding: 0;
+    }
+    .control-panel:not(.collapsed) {
+      padding: 0 0 4px 0;
+    }
+
+    .control-panel.collapsed .panel-content {
+      display: none;
+    }
+
+    .toggle-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 14px 16px;
+      background: none;
+      border: none;
+      color: #f5f5f7;
+      font-size: 17px;
+      font-weight: 500;
+      cursor: pointer;
+      gap: 8px;
+      border-radius: 12px;
+    }
+
+    .toggle-btn:hover { background: rgba(255, 255, 255, 0.06); }
+    .toggle-btn svg {
+      width: 14px;
+      height: 14px;
+      color: #8e8e93;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .control-panel.collapsed .toggle-btn svg { transform: rotate(-90deg); }
+
+    .panel-content { padding: 0 0 12px 0; }
+
+    /* Grouped list style */
+    .control-group {
+      margin: 0 12px 12px;
+      background: #1c1c1e;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .control-group:last-child { margin-bottom: 0; }
+
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: #2c2c2e;
+      border-bottom: 0.5px solid rgba(84, 84, 88, 0.65);
+    }
+
+    .control-row:last-child { border-bottom: none; }
+
+    .slider-control {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .slider-control .control-label {
+      margin-right: 0;
+    }
+
+    .slider-control .slider-with-value {
+      width: 100%;
+    }
+
+    .control-label {
+      font-size: 15px;
+      font-weight: 400;
+      color: #f5f5f7;
+    }
+
+    .control-group > .control-label {
+      display: block;
+      padding: 10px 14px 6px;
+      font-size: 13px;
+      font-weight: 400;
+      color: #8e8e93;
+    }
+
+    .colors-label {
+      font-size: 15px;
+      font-weight: 400;
+      color: #f5f5f7;
+    }
+
+    .color-label {
+      font-size: 13px;
+      color: #8e8e93;
+    }
+
+    /* iOS slider */
+    .slider-with-value {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .slider-with-value input[type="range"] {
+      flex: 1;
+      min-width: 0;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #48484a;
+      border-radius: 2px;
+    }
+
+    .slider-with-value input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+      margin-top: -6px;
+    }
+
+    .slider-with-value input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+    }
+
+    .slider-with-value .slider-value {
+      width: 60px;
+      flex-shrink: 0;
+    }
+
+    .slider-value {
+      padding: 6px 8px;
+      background: #3a3a3c;
+      border: none;
+      border-radius: 8px;
+      color: #f5f5f7;
+      font-size: 15px;
+      font-weight: 400;
+      text-align: center;
+    }
+
+    .slider-value:focus {
+      outline: none;
+      background: #48484a;
+    }
+
+    /* Color section */
+    .color-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #2c2c2e;
+      border-radius: 10px;
+    }
+
+    .color-controls-row {
+      display: flex;
+      gap: 12px;
+    }
+
+    .color-control {
+      flex: 1;
+    }
+
+    .color-control .color-label {
+      display: block;
+      padding: 0 0 8px;
+      font-size: 13px;
+      color: #8e8e93;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .color-picker-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .color-swatch {
+      position: relative;
+      width: 40px;
+      height: 32px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #3a3a3c;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      flex-shrink: 0;
+    }
+
+    .color-preview {
+      position: absolute;
+      inset: 0;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+
+    .color-swatch.transparent .color-preview {
+      background-color: #fff;
+      background-image:
+        linear-gradient(45deg, #999 25%, transparent 25%),
+        linear-gradient(-45deg, #999 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #999 75%),
+        linear-gradient(-45deg, transparent 75%, #999 75%);
+      background-size: 8px 8px;
+      background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+    }
+
+    .color-swatch input[type="color"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      border: none;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .color-swatch input[type="color"]:disabled {
+      pointer-events: none;
+    }
+
+
+    /* Toggle switch */
+    .toggle-switch {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    .switch {
+      position: relative;
+      width: 40px;
+      height: 24px;
+      background: #3a3a3c;
+      border-radius: 12px;
+      transition: background 0.2s;
+    }
+    .switch::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: #636366;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.is-active .switch {
+      background: #0a84ff;
+    }
+    .toggle-switch.is-active .switch::after {
+      transform: translateX(16px);
+      background: #fff;
+    }
+
+    /* Play / Pause button in Grid Controls */
+    .playback-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 14px;
+      background: #2c2c2e;
+      border: none;
+      border-radius: 10px;
+      color: #f5f5f7;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      font-size: 15px;
+      font-weight: 400;
+      cursor: pointer;
+    }
+    .playback-btn:hover {
+      background: #3a3a3c;
+    }
+    .playback-btn svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    /* Export button - top right */
+    .export-btn {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: rgba(28, 28, 30, 0.92);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border: none;
+      border-radius: 10px;
+      color: #f5f5f7;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    }
+    .export-btn:hover {
+      background: rgba(44, 44, 46, 0.95);
+    }
+  </style>
+</head>
+<body>
+  <button class="export-btn" id="exportBtn" type="button">Export</button>
+  <div class="control-panel" id="controlPanel">
+    <button class="toggle-btn" id="toggleBtn" type="button">
+      <span>Grid Controls</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </button>
+    <div class="panel-content">
+      <div class="control-group">
+        <div class="control-row">
+          <span class="control-label">Hexagon</span>
+          <div class="toggle-switch" id="hexagonSwitch" role="button" tabindex="0" aria-pressed="false">
+            <span class="switch"></span>
+          </div>
+        </div>
+      </div>
+      <div class="control-group">
+        <div class="control-row slider-control">
+          <span class="control-label">Divisions</span>
+          <div class="slider-with-value">
+            <input type="range" id="divisionsSlider" min="2" max="50" value="40" step="1">
+            <input type="number" class="slider-value" id="divisionsValue" min="2" max="50" value="40">
+          </div>
+        </div>
+      </div>
+      <div class="control-group">
+        <div class="control-row slider-control">
+          <span class="control-label">Line Thickness</span>
+          <div class="slider-with-value">
+            <input type="range" id="thicknessSlider" min="1" max="10" value="1" step="1">
+            <input type="number" class="slider-value" id="thicknessValue" min="1" max="10" value="1">
+          </div>
+        </div>
+      </div>
+      <div class="control-group colors-group">
+        <div class="color-controls">
+          <span class="control-label colors-label">Colors</span>
+          <div class="color-controls-row">
+          <div class="color-control">
+            <span class="color-label">Line</span>
+            <div class="color-row">
+              <div class="color-picker-wrapper" id="lineColorWrapper">
+                <div class="color-swatch" id="lineColorSwatch">
+                  <div class="color-preview" id="lineColorPreview" style="background-color: #ffffff"></div>
+                  <input type="color" id="lineColorPicker" value="#ffffff">
+                </div>
+                <div class="toggle-switch line-transparent-toggle is-active" id="lineTransparentToggle" role="button" tabindex="0" aria-pressed="true" title="Transparent when off">
+                  <span class="switch"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="color-control">
+            <span class="color-label">Fill</span>
+            <div class="color-row">
+              <div class="color-picker-wrapper" id="fillColorWrapper">
+                <div class="color-swatch" id="fillColorSwatch">
+                  <div class="color-preview" id="fillColorPreview" style="background-color: #2a2a2a"></div>
+                  <input type="color" id="fillColorPicker" value="#2a2a2a">
+                </div>
+                <div class="toggle-switch fill-transparent-toggle is-active" id="fillTransparentToggle" role="button" tabindex="0" aria-pressed="true" title="Transparent when off">
+                  <span class="switch"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+      <div class="control-group">
+        <div class="control-row">
+          <span class="control-label">Distortion</span>
+          <div class="toggle-switch" id="distortionSwitch" role="button" tabindex="0" aria-pressed="false">
+            <span class="switch"></span>
+          </div>
+        </div>
+        <div id="distortionSliders" style="display: none;">
+          <div class="control-row slider-control">
+            <span class="control-label">Distortion Amplitude</span>
+            <div class="slider-with-value">
+              <input type="range" id="amplitudeSlider" min="10" max="900" value="250" step="1">
+              <input type="number" class="slider-value" id="amplitudeValue" min="10" max="900" value="250">
+            </div>
+          </div>
+          <div class="control-row slider-control">
+            <span class="control-label">Frequency</span>
+            <div class="slider-with-value">
+              <input type="range" id="frequencySlider" min="1" max="5" value="3" step="1">
+              <input type="number" class="slider-value" id="frequencyValue" min="1" max="5" value="3">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="control-group" id="playbackControls" style="display: none;">
+        <div class="control-row slider-control">
+          <span class="control-label">Playback Speed</span>
+          <div class="slider-with-value">
+            <input type="range" id="playbackSpeedSlider" min="1" max="4" value="1" step="0.1">
+            <input type="number" class="slider-value" id="playbackSpeedValue" min="1" max="4" value="1" step="0.1">
+          </div>
+        </div>
+      </div>
+      <div class="control-group" id="playbackBtnGroup" style="display: none;">
+        <button class="playback-btn" id="playbackBtn" type="button" title="Play / Pause distortion animation" aria-label="Play">
+          <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+          </svg>
+          <span id="playbackBtnText">Play</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
