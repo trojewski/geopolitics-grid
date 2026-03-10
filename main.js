@@ -9,7 +9,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a2a2a);
 
 // Camera
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
 camera.position.set(800, 600, 800);
 camera.lookAt(0, 0, 0);
 
@@ -89,6 +89,7 @@ const gridSize = 1000;
 const halfSize = gridSize / 2;
 let gridLines = null;
 let plane = null;
+let gridMode = 'square'; // 'square' | 'hexagonal'
 
 // Distortion: sine/cosine wave on 2D plane (Y displacement)
 let distortionAmplitude = 250;
@@ -185,6 +186,121 @@ function buildGridGeometry(divisions, getHeight = null) {
   return new Float32Array(positions);
 }
 
+// Hex grid: flat-top hexagons, no gaps. Divisions controls scale (higher = smaller hexagons).
+const SQ3 = Math.sqrt(3);
+
+function getHexSize(divisions) {
+  return halfSize / (divisions * 0.5);
+}
+
+function getHexCenters(divisions) {
+  const r = getHexSize(divisions);
+  const centers = [];
+  const maxDist = halfSize + r * 2;
+  const maxRow = Math.ceil(maxDist / (1.5 * r));
+  const maxCol = Math.ceil(maxDist / (SQ3 * r));
+
+  for (let row = -maxRow; row <= maxRow; row++) {
+    for (let col = -maxCol; col <= maxCol; col++) {
+      const x = SQ3 * r * (col + 0.5 * (row % 2));
+      const z = 1.5 * r * row;
+      if (Math.abs(x) <= maxDist && Math.abs(z) <= maxDist) {
+        centers.push([x, z]);
+      }
+    }
+  }
+  return centers;
+}
+
+function getHexagonVertices(cx, cz, r) {
+  const verts = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.PI / 2 - (i * Math.PI / 3);
+    verts.push([cx + r * Math.cos(angle), cz + r * Math.sin(angle)]);
+  }
+  return verts;
+}
+
+function hexVertexKey(x, z) {
+  return `${Math.round(x * 1e4) / 1e4},${Math.round(z * 1e4) / 1e4}`;
+}
+
+function buildHexSharedVertexPool(divisions, getHeight = null) {
+  const r = getHexSize(divisions);
+  const centers = getHexCenters(divisions);
+  const vertexMap = new Map();
+  const positions = [];
+  const hexIndices = [];
+
+  for (const [cx, cz] of centers) {
+    const verts = getHexagonVertices(cx, cz, r);
+    const hexVerts = [];
+    for (const [x, z] of verts) {
+      const key = hexVertexKey(x, z);
+      let idx = vertexMap.get(key);
+      if (idx === undefined) {
+        idx = positions.length / 3;
+        const y = getHeight ? getHeight(x, z) : -0.5;
+        positions.push(x, y, z);
+        vertexMap.set(key, idx);
+      }
+      hexVerts.push(idx);
+    }
+    hexIndices.push(hexVerts);
+  }
+  return { positions, hexIndices };
+}
+
+function buildHexGridGeometry(divisions, getHeight = null) {
+  const linePositions = [];
+  const r = getHexSize(divisions);
+  const centers = getHexCenters(divisions);
+
+  for (const [cx, cz] of centers) {
+    const verts = getHexagonVertices(cx, cz, r);
+    for (let i = 0; i < 6; i++) {
+      const [x1, z1] = verts[i];
+      const [x2, z2] = verts[(i + 1) % 6];
+      const y1 = getHeight ? getHeight(x1, z1) : 0.01;
+      const y2 = getHeight ? getHeight(x2, z2) : 0.01;
+      linePositions.push(x1, y1, z1, x2, y2, z2);
+    }
+  }
+  return new Float32Array(linePositions);
+}
+
+function buildHexFillGeometry(divisions, color, transparent, getHeight = null) {
+  const { positions, hexIndices } = buildHexSharedVertexPool(divisions, getHeight);
+
+  const indices = [];
+  for (const hexVerts of hexIndices) {
+    const [a, b, c, d, e, f] = hexVerts;
+    indices.push(a, b, c, a, c, d, a, d, e, a, e, f);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshLambertMaterial({
+    color: color,
+    side: THREE.DoubleSide,
+    transparent: transparent,
+    opacity: transparent ? 0 : 1,
+    polygonOffset: true,
+    polygonOffsetFactor: 4,
+    polygonOffsetUnits: 4,
+    clipping: true,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(0, 0, 0);
+  mesh.renderOrder = 0;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 // Create grid lines mesh
 function createGridLines(divisions, lineWidth, color, transparent, distortionEnabled, dispAmp, dispFreq, dispFactor) {
   const amp = dispAmp ?? distortionAmplitude;
@@ -278,23 +394,47 @@ function updateGrid(useDisplayValues = false) {
     gridLines.material.dispose();
   }
 
-  const useSubdivided = distortionEnabled || displayDistortionFactor > 0;
-  const amp = useDisplayValues ? displayDistortionAmplitude : distortionAmplitude;
-  const freq = useDisplayValues ? displayDistortionFrequency : distortionFrequency;
-  const factor = useDisplayValues ? displayDistortionFactor : (distortionEnabled ? 1 : 0);
+  if (gridMode === 'hexagonal') {
+    const useDistortion = distortionEnabled || displayDistortionFactor > 0;
+    const amp = useDisplayValues ? displayDistortionAmplitude : distortionAmplitude;
+    const freq = useDisplayValues ? displayDistortionFrequency : distortionFrequency;
+    const factor = useDisplayValues ? displayDistortionFactor : (distortionEnabled ? 1 : 0);
+    const getHeight = useDistortion
+      ? (x, z) => (getDistortionHeight(x, z, amp, freq) * factor) + 0.5
+      : null;
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(buildHexGridGeometry(currentDivisions, getHeight));
+    const material = new LineMaterial({
+      color: currentLineColor,
+      linewidth: currentThickness,
+      worldUnits: false,
+      transparent: lineTransparent,
+      opacity: lineTransparent ? 0 : 1,
+    });
+    material.resolution.set(window.innerWidth, window.innerHeight);
+    gridLines = new LineSegments2(geometry, material);
+    gridLines.position.set(0, 0, 0);
+    gridLines.renderOrder = 1;
+    gridLines.castShadow = true;
+    gridLines.receiveShadow = true;
+  } else {
+    const useSubdivided = distortionEnabled || displayDistortionFactor > 0;
+    const amp = useDisplayValues ? displayDistortionAmplitude : distortionAmplitude;
+    const freq = useDisplayValues ? displayDistortionFrequency : distortionFrequency;
+    const factor = useDisplayValues ? displayDistortionFactor : (distortionEnabled ? 1 : 0);
+    gridLines = createGridLines(
+      currentDivisions,
+      currentThickness,
+      currentLineColor,
+      lineTransparent,
+      useSubdivided,
+      amp,
+      freq,
+      factor
+    );
+  }
 
-  gridLines = createGridLines(
-    currentDivisions,
-    currentThickness,
-    currentLineColor,
-    lineTransparent,
-    useSubdivided,
-    amp,
-    freq,
-    factor
-  );
   scene.add(gridLines);
-
   gridLines.material.resolution.set(window.innerWidth, window.innerHeight);
   applyHexagonClipping(gridLines, hexagonEnabled);
 }
@@ -306,12 +446,23 @@ function updateFillPlane(useDisplayValues = false) {
     plane.material.dispose();
   }
 
-  const useSubdivided = distortionEnabled || displayDistortionFactor > 0;
-  const amp = useDisplayValues ? displayDistortionAmplitude : distortionAmplitude;
-  const freq = useDisplayValues ? displayDistortionFrequency : distortionFrequency;
-  const factor = useDisplayValues ? displayDistortionFactor : (distortionEnabled ? 1 : 0);
+  if (gridMode === 'hexagonal') {
+    const useDistortion = distortionEnabled || displayDistortionFactor > 0;
+    const amp = useDisplayValues ? displayDistortionAmplitude : distortionAmplitude;
+    const freq = useDisplayValues ? displayDistortionFrequency : distortionFrequency;
+    const factor = useDisplayValues ? displayDistortionFactor : (distortionEnabled ? 1 : 0);
+    const getHeight = useDistortion
+      ? (x, z) => Math.max(0, getDistortionHeight(x, z, amp, freq) * factor) - 0.5
+      : null;
+    plane = buildHexFillGeometry(currentDivisions, currentFillColor, fillTransparent, getHeight);
+  } else {
+    const useSubdivided = distortionEnabled || displayDistortionFactor > 0;
+    const amp = useDisplayValues ? displayDistortionAmplitude : distortionAmplitude;
+    const freq = useDisplayValues ? displayDistortionFrequency : distortionFrequency;
+    const factor = useDisplayValues ? displayDistortionFactor : (distortionEnabled ? 1 : 0);
+    plane = createFillPlane(currentFillColor, fillTransparent, useSubdivided, amp, freq, factor);
+  }
 
-  plane = createFillPlane(currentFillColor, fillTransparent, useSubdivided, amp, freq, factor);
   scene.add(plane);
   applyHexagonClipping(plane, hexagonEnabled);
 }
@@ -335,8 +486,12 @@ toggleBtn.addEventListener('click', () => {
 const divisionsSlider = document.getElementById('divisionsSlider');
 const divisionsValue = document.getElementById('divisionsValue');
 
+function getDivisionsMax() {
+  return gridMode === 'hexagonal' ? 100 : 50;
+}
+
 function clampDivisions(val) {
-  return Math.min(50, Math.max(2, Math.round(Number(val))));
+  return Math.min(getDivisionsMax(), Math.max(2, Math.round(Number(val))));
 }
 
 divisionsSlider.addEventListener('input', (e) => {
@@ -345,6 +500,7 @@ divisionsSlider.addEventListener('input', (e) => {
   divisionsSlider.value = val;
   divisionsValue.value = val;
   updateGrid();
+  updateFillPlane();
 });
 
 divisionsValue.addEventListener('input', (e) => {
@@ -353,11 +509,40 @@ divisionsValue.addEventListener('input', (e) => {
   divisionsSlider.value = val;
   divisionsValue.value = val;
   updateGrid();
+  updateFillPlane();
 });
 
 divisionsValue.addEventListener('blur', () => {
   divisionsValue.value = currentDivisions;
 });
+
+// Grid mode (Square / Hexagonal)
+const gridModeSquare = document.getElementById('gridModeSquare');
+const gridModeHexagonal = document.getElementById('gridModeHexagonal');
+
+function setGridMode(mode) {
+  gridMode = mode;
+  gridModeSquare.checked = mode === 'square';
+  gridModeHexagonal.checked = mode === 'hexagonal';
+  const divisionsRow = divisionsSlider.closest('.control-row');
+  if (divisionsRow) {
+    const label = divisionsRow.querySelector('.control-label');
+    if (label) label.textContent = mode === 'hexagonal' ? 'Divisions (Hex Scale)' : 'Divisions';
+  }
+  const max = mode === 'hexagonal' ? 100 : 50;
+  divisionsSlider.max = max;
+  divisionsValue.max = max;
+  if (currentDivisions > max) {
+    currentDivisions = max;
+    divisionsSlider.value = max;
+    divisionsValue.value = max;
+  }
+  updateGrid();
+  updateFillPlane();
+}
+
+gridModeSquare.addEventListener('change', () => setGridMode('square'));
+gridModeHexagonal.addEventListener('change', () => setGridMode('hexagonal'));
 
 // Grid Line Thickness
 const thicknessSlider = document.getElementById('thicknessSlider');

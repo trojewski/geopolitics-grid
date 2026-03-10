@@ -348,6 +348,31 @@
     .export-btn:hover {
       background: rgba(44, 44, 46, 0.95);
     }
+
+    /* Grid mode radio buttons */
+    .grid-mode-radios {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px 14px;
+      background: #2c2c2e;
+      border-radius: 10px;
+    }
+    .grid-mode-radios label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      color: #f5f5f7;
+      cursor: pointer;
+    }
+    .grid-mode-radios input[type="radio"] {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      accent-color: #0a84ff;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -360,6 +385,18 @@
       </svg>
     </button>
     <div class="panel-content">
+      <div class="control-group">
+        <div class="grid-mode-radios">
+          <label>
+            <input type="radio" name="gridMode" value="square" id="gridModeSquare" checked>
+            Square Grid
+          </label>
+          <label>
+            <input type="radio" name="gridMode" value="hexagonal" id="gridModeHexagonal">
+            Hexagonal Grid
+          </label>
+        </div>
+      </div>
       <div class="control-group">
         <div class="control-row">
           <span class="control-label">Hexagon</span>
@@ -421,7 +458,7 @@
           </div>
         </div>
       </div>
-      <div class="control-group">
+      <div class="control-group" id="distortionControlGroup">
         <div class="control-row">
           <span class="control-label">Distortion</span>
           <div class="toggle-switch" id="distortionSwitch" role="button" tabindex="0" aria-pressed="false">
